@@ -18,15 +18,15 @@ void print_error(const char *desc, DWORD errcode) {
         FORMAT_MESSAGE_FROM_SYSTEM
         // allocate buffer on local heap for error text
         |FORMAT_MESSAGE_ALLOCATE_BUFFER
-        // Important! will fail otherwise, since we're not 
+        // Important! will fail otherwise, since we're not
         // (and CANNOT) pass insertion parameters
-        |FORMAT_MESSAGE_IGNORE_INSERTS,  
+        |FORMAT_MESSAGE_IGNORE_INSERTS,
         NULL,    // unused with FORMAT_MESSAGE_FROM_SYSTEM
         errcode,
         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        (LPTSTR)&errorText,  // output 
+        (LPTSTR)&errorText,  // output
         0, // minimum size for output buffer
-        NULL);   // arguments - see note 
+        NULL);   // arguments - see note
 
     if (errorText != NULL) {
         if (desc == NULL) desc = "Error";
@@ -50,6 +50,9 @@ void print_mitigations(HANDLE hProc) {
     PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY       strict_handle_check = {0};
     PROCESS_MITIGATION_SYSTEM_CALL_DISABLE_POLICY       system_call_disable = {0};
     PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY   extension_point_disable = {0};
+    PROCESS_MITIGATION_CONTROL_FLOW_GUARD_POLICY        control_flow_guard = { 0 };
+    PROCESS_MITIGATION_FONT_DISABLE_POLICY              font_disable_policy = { 0 };
+    PROCESS_MITIGATION_DYNAMIC_CODE_POLICY              dynamic_code_policy = { 0 };
 
     GET_MITIGATION(hProc, ProcessDEPPolicy, &dep, sizeof(dep)) {
         printf("ProcessDEPPolicy\n");
@@ -80,36 +83,58 @@ void print_mitigations(HANDLE hProc) {
         printf("ProcessExtensionPointDisablePolicy\n");
         printf(" DisableExtensionPoints                     %u\n", extension_point_disable.DisableExtensionPoints);
     }
+
+    GET_MITIGATION(hProc, ProcessControlFlowGuardPolicy, &control_flow_guard, sizeof(control_flow_guard)) {
+        printf("ProcessControlFlowGuardPolicy\n");
+        printf(" EnableControlFlowGuard                     %u\n", control_flow_guard.EnableControlFlowGuard);
+        printf(" EnableExportSuppression                    %u\n", control_flow_guard.EnableExportSuppression);
+        printf(" StrictMode                                 %u\n", control_flow_guard.StrictMode);
+    }
+
+    GET_MITIGATION(hProc, ProcessFontDisablePolicy, &font_disable_policy, sizeof(font_disable_policy)) {
+        printf("ProcessFontDisablePolicy\n");
+        printf(" DisableNonSystemFonts                      %u\n", font_disable_policy.DisableNonSystemFonts);
+        printf(" AuditNonSystemFontLoading                  %u\n", font_disable_policy.AuditNonSystemFontLoading);
+    }
+
+    GET_MITIGATION(hProc, ProcessDynamicCodePolicy, &dynamic_code_policy, sizeof(dynamic_code_policy)) {
+        printf("ProcessDynamicCodePolicy\n");
+        printf(" ProhibitDynamicCode                        %u\n", dynamic_code_policy.ProhibitDynamicCode);
+        printf(" AllowThreadOptOut                          %u\n", dynamic_code_policy.AllowThreadOptOut);
+        printf(" AllowRemoteDowngrade                       %u\n", dynamic_code_policy.AllowRemoteDowngrade);
+    }
 }
 
 void usage(const char *p) {
-    printf("usage: %s <pid>\n", p);
+    printf("usage: %s <pid> [<pid> [...]]\n", p);
 }
 
 int main(int argc, char* argv[]) {
     DWORD pid = 0;
     HANDLE hProc;
 
-    if (argc != 2) {
+    if (argc < 2) {
         usage(argv[0]);
         return EXIT_FAILURE;
     }
 
-    pid = strtoul(argv[1], NULL, 0);
-    if (pid == 0) {
-        usage(argv[0]);
-        return EXIT_FAILURE;
+    for (int i = 1; i < argc; i++) {
+        pid = strtoul(argv[i], NULL, 0);
+        if (pid == 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+
+        hProc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, (DWORD)pid);
+        if (hProc == NULL) {
+            print_error("OpenProcess", GetLastError());
+            return EXIT_FAILURE;
+        }
+
+        printf("\nProcess %d mitigations: \n", pid);
+        print_mitigations(hProc);
+
+        CloseHandle(hProc);
     }
-
-    hProc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, (DWORD)pid);
-    if (hProc == NULL) {
-        print_error("OpenProcess", GetLastError());
-        return EXIT_FAILURE;
-    }
-
-    print_mitigations(hProc);
-
-    CloseHandle(hProc);
-	return EXIT_SUCCESS;
+    return EXIT_SUCCESS;
 }
-
